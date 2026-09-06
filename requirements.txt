@@ -1,5 +1,7 @@
+
 streamlit
 plotly
 pandas
 numpy
 PyMuPDF
+sentence-transformers

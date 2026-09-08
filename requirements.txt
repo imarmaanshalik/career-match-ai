@@ -5,3 +5,4 @@ numpy
 PyMuPDF
 sentence-transformers
 scikit-learn
+reportlab

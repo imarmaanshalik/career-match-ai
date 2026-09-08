@@ -164,7 +164,140 @@ def generate_combined_tips(resume_text, results_list):
 # PDF REPORT GENERATOR (inlined, uses reportlab)
 # =========================================================
 
-def generate_pdf_report(resume_name, results_list, tips):
+# =========================================================
+# COMPANY SUGGESTIONS (role inference + illustrative hiring guide)
+# =========================================================
+#
+# NOTE: This maps detected resume skills to common tech/business roles,
+# then to companies broadly known to hire for that role. It is a general
+# industry reference — not a live job board — so scores/companies are
+# illustrative, not scraped from real-time postings.
+
+ROLE_SKILL_MAP = {
+    "Software Engineer": [
+        "python", "java", "c++", "c#", "algorithms", "data structures",
+        "git", "sql", "oop", "system design",
+    ],
+    "Data Scientist": [
+        "python", "machine learning", "statistics", "pandas", "numpy",
+        "sql", "tensorflow", "pytorch", "data science", "r",
+    ],
+    "Data Analyst": [
+        "excel", "sql", "tableau", "power bi", "statistics", "python",
+        "data analysis", "data visualization",
+    ],
+    "Frontend Developer": [
+        "javascript", "react", "html", "css", "vue", "angular",
+        "typescript", "redux", "next.js",
+    ],
+    "Backend Developer": [
+        "node.js", "python", "java", "sql", "api", "django", "flask",
+        "spring", "rest", "microservices",
+    ],
+    "Full Stack Developer": [
+        "javascript", "react", "node.js", "mongodb", "express", "html",
+        "css", "sql", "rest api",
+    ],
+    "DevOps Engineer": [
+        "docker", "kubernetes", "aws", "ci/cd", "jenkins", "terraform",
+        "linux", "ansible", "azure", "gcp",
+    ],
+    "Cloud Engineer": [
+        "aws", "azure", "gcp", "cloud", "terraform", "kubernetes",
+        "cloud computing", "docker",
+    ],
+    "Machine Learning Engineer": [
+        "python", "tensorflow", "pytorch", "machine learning",
+        "deep learning", "nlp", "computer vision", "scikit-learn",
+    ],
+    "Product Manager": [
+        "agile", "scrum", "roadmap", "stakeholder management", "jira",
+        "product strategy", "market research",
+    ],
+    "UI/UX Designer": [
+        "figma", "sketch", "adobe xd", "wireframing", "prototyping",
+        "user research", "ui design", "ux design",
+    ],
+    "Cybersecurity Analyst": [
+        "security", "penetration testing", "network security", "siem",
+        "firewall", "cybersecurity", "vulnerability assessment",
+    ],
+    "QA Engineer": [
+        "testing", "selenium", "automation testing", "qa", "test cases",
+        "manual testing", "cypress",
+    ],
+    "Mobile Developer": [
+        "android", "ios", "swift", "kotlin", "react native", "flutter",
+        "mobile development",
+    ],
+    "Business Analyst": [
+        "excel", "sql", "business analysis", "requirements gathering",
+        "stakeholder management", "power bi", "process improvement",
+    ],
+}
+
+ROLE_COMPANIES_MAP = {
+    "Software Engineer": ["Google", "Microsoft", "Amazon", "Meta", "Apple", "Netflix"],
+    "Data Scientist": ["Google", "Amazon", "Netflix", "Meta", "IBM", "Uber"],
+    "Data Analyst": ["Deloitte", "Accenture", "EY", "Amazon", "IBM", "Flipkart"],
+    "Frontend Developer": ["Google", "Adobe", "Airbnb", "Shopify", "Meta"],
+    "Backend Developer": ["Amazon", "Microsoft", "Uber", "Stripe", "Twilio"],
+    "Full Stack Developer": ["Amazon", "Flipkart", "Swiggy", "Zomato", "Paytm"],
+    "DevOps Engineer": ["Amazon Web Services", "Google Cloud", "Microsoft", "Netflix", "Atlassian"],
+    "Cloud Engineer": ["AWS", "Microsoft Azure", "Google Cloud", "IBM Cloud", "Oracle"],
+    "Machine Learning Engineer": ["Google DeepMind", "OpenAI", "NVIDIA", "Amazon", "Meta"],
+    "Product Manager": ["Google", "Amazon", "Microsoft", "Flipkart", "Zomato"],
+    "UI/UX Designer": ["Adobe", "Google", "Airbnb", "Figma", "Zomato"],
+    "Cybersecurity Analyst": ["IBM", "Cisco", "Palo Alto Networks", "Deloitte", "Accenture"],
+    "QA Engineer": ["Infosys", "TCS", "Wipro", "Amazon", "Cognizant"],
+    "Mobile Developer": ["Google", "Apple", "Uber", "Swiggy", "PhonePe"],
+    "Business Analyst": ["Deloitte", "EY", "KPMG", "Accenture", "TCS"],
+}
+
+
+def infer_matching_roles(resume_skills, top_n=3):
+    """
+    Score each known role by how many of its associated skills overlap
+    with the resume's detected skills. Returns the top N roles that had
+    at least one overlapping skill, sorted by overlap count (desc).
+    """
+    resume_skills_lower = {s.lower().strip() for s in resume_skills}
+
+    scored_roles = []
+    for role, role_skills in ROLE_SKILL_MAP.items():
+        overlap = [s for s in role_skills if s in resume_skills_lower]
+        if overlap:
+            scored_roles.append({
+                "role": role,
+                "overlap_count": len(overlap),
+                "overlap_skills": overlap,
+            })
+
+    scored_roles.sort(key=lambda r: r["overlap_count"], reverse=True)
+    return scored_roles[:top_n]
+
+
+def suggest_companies(resume_skills, top_n_roles=3, companies_per_role=5):
+    """
+    Returns a list of dicts: {role, overlap_skills, companies}
+    for the best-matching roles based on detected resume skills.
+    """
+    matching_roles = infer_matching_roles(resume_skills, top_n=top_n_roles)
+
+    suggestions = []
+    for entry in matching_roles:
+        role = entry["role"]
+        companies = ROLE_COMPANIES_MAP.get(role, [])[:companies_per_role]
+        suggestions.append({
+            "role": role,
+            "overlap_skills": entry["overlap_skills"],
+            "companies": companies,
+        })
+
+    return suggestions
+
+
+def generate_pdf_report(resume_name, results_list, tips, company_suggestions=None):
     """
     Parameters
     ----------
@@ -271,6 +404,24 @@ def generate_pdf_report(resume_name, results_list, tips):
     story.append(Paragraph("Resume Improvement Tips", heading_style))
     for tip in tips:
         story.append(Paragraph(f"• {tip}", tip_style))
+
+    if company_suggestions:
+        story.append(HRFlowable(width="100%", color=colors.HexColor("#e4e4e7")))
+        story.append(Paragraph("Companies That Might Hire You", heading_style))
+        story.append(Paragraph(
+            "Based on your detected skills, here are roles you're a strong "
+            "fit for and companies commonly known to hire for them. This is "
+            "a general industry guide, not a live list of open positions — "
+            "check each company's careers page for current openings.",
+            body_style,
+        ))
+        story.append(Spacer(1, 8))
+        for sug in company_suggestions:
+            story.append(Paragraph(f"<b>{sug['role']}</b>", body_style))
+            story.append(Paragraph(
+                "Companies: " + ", ".join(sug["companies"]), body_style
+            ))
+            story.append(Spacer(1, 8))
 
     story.append(Spacer(1, 20))
     story.append(Paragraph(
@@ -444,7 +595,7 @@ st.markdown(
         font-size: 13px;
         letter-spacing: 1px;
         margin-bottom: 25px;
-        animation: badgePulse 3s infinite;
+        animation: badgePulse 3s infinite, fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
     }
 
     @keyframes badgePulse {
@@ -461,7 +612,7 @@ st.markdown(
         background-size: 300% auto;
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        animation: gradientMove 6s linear infinite;
+        animation: gradientMove 6s linear infinite, fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both;
     }
 
     @keyframes gradientMove {
@@ -476,6 +627,7 @@ st.markdown(
         color: #a1a1aa;
         font-size: 18px;
         line-height: 1.7;
+        animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both;
     }
 
     /* ==============================
@@ -726,6 +878,157 @@ st.markdown(
     }
 
     /* ==============================
+       ENTRANCE + AMBIENT ANIMATION
+    ============================== */
+
+    @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(22px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .fade-in-up {
+        opacity: 0;
+        animation: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    @keyframes sparkleFloat {
+        0%, 100% { transform: translateY(0) scale(1); opacity: 0.25; }
+        50% { transform: translateY(-18px) scale(1.4); opacity: 0.9; }
+    }
+
+    .sparkle-field {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        overflow: hidden;
+    }
+
+    .sparkle {
+        position: absolute;
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: #c4b5fd;
+        box-shadow: 0 0 8px 2px rgba(196,181,253,0.6);
+        animation: sparkleFloat 4.5s ease-in-out infinite;
+    }
+
+    .sparkle:nth-child(odd) {
+        background: #67e8f9;
+        box-shadow: 0 0 8px 2px rgba(103,232,249,0.6);
+    }
+
+    /* Button shine sweep on hover */
+    .stButton > button, .stDownloadButton > button {
+        position: relative;
+        overflow: hidden;
+    }
+
+    .stButton > button::after, .stDownloadButton > button::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: -75%;
+        width: 50%;
+        height: 100%;
+        background: linear-gradient(
+            120deg,
+            transparent,
+            rgba(255,255,255,0.35),
+            transparent
+        );
+        transform: skewX(-20deg);
+        transition: left 0.6s ease;
+    }
+
+    .stButton > button:hover::after, .stDownloadButton > button:hover::after {
+        left: 130%;
+    }
+
+    /* Score card ambient glow pulse */
+    @keyframes cardGlowPulse {
+        0%, 100% { box-shadow: 0 0 0 rgba(124,58,237,0); }
+        50% { box-shadow: 0 0 55px rgba(124,58,237,0.25); }
+    }
+
+    .score-card {
+        animation: cardGlowPulse 3.5s ease-in-out infinite;
+    }
+
+    /* Active step pulsing ring */
+    @keyframes ringPulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(167,139,250,0.4); }
+        50% { box-shadow: 0 0 0 8px rgba(167,139,250,0); }
+    }
+
+    .step-active .step-number {
+        animation: ringPulse 2s ease-in-out infinite;
+    }
+
+    /* Typewriter tagline */
+    @keyframes typing {
+        from { width: 0; }
+        to { width: 100%; }
+    }
+
+    @keyframes blinkCursor {
+        50% { border-color: transparent; }
+    }
+
+    .tagline-type {
+        display: inline-block;
+        overflow: hidden;
+        white-space: nowrap;
+        border-right: 2px solid #67e8f9;
+        margin: 0 auto;
+        animation:
+            typing 2.4s steps(30, end) 0.4s both,
+            blinkCursor 0.75s step-end infinite;
+    }
+
+    /* Processing screen spinner + bouncing dots */
+    @keyframes spinPulse {
+        0% { transform: rotate(0deg) scale(1); }
+        50% { transform: rotate(180deg) scale(1.15); }
+        100% { transform: rotate(360deg) scale(1); }
+    }
+
+    .spinner-icon {
+        display: inline-block;
+        font-size: 34px;
+        animation: spinPulse 2.2s ease-in-out infinite;
+    }
+
+    @keyframes bounceDot {
+        0%, 80%, 100% { transform: translateY(0); opacity: 0.5; }
+        40% { transform: translateY(-10px); opacity: 1; }
+    }
+
+    .loading-dots span {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        margin: 0 4px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #a78bfa, #67e8f9);
+        animation: bounceDot 1.2s ease-in-out infinite;
+    }
+
+    .loading-dots span:nth-child(2) { animation-delay: 0.15s; }
+    .loading-dots span:nth-child(3) { animation-delay: 0.3s; }
+
+    /* Extra glow on card hover, layered on top of existing transform */
+    .glass:hover {
+        box-shadow: 0 20px 70px rgba(0,0,0,0.35), 0 0 40px rgba(124,58,237,0.18);
+    }
+
+    /* Company / skill chip pop-in hover */
+    .skill {
+        animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    /* ==============================
        MOBILE
     ============================== */
 
@@ -740,6 +1043,20 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
+# Ambient sparkle field (decorative, purely visual, sits behind all content)
+_SPARKLE_POSITIONS = [
+    (6, 12, 0.0, 4.0), (18, 78, 0.8, 5.2), (32, 34, 1.4, 3.8),
+    (47, 91, 0.3, 4.6), (61, 8, 1.9, 5.0), (74, 55, 0.6, 4.2),
+    (85, 25, 1.1, 3.6), (93, 70, 1.7, 4.8), (12, 60, 2.2, 4.0),
+    (55, 45, 0.9, 5.4),
+]
+_sparkle_html = '<div class="sparkle-field">' + "".join(
+    f'<span class="sparkle" style="top:{t}%; left:{l}%; '
+    f'animation-delay:{d}s; animation-duration:{dur}s;"></span>'
+    for t, l, d, dur in _SPARKLE_POSITIONS
+) + "</div>"
+st.markdown(_sparkle_html, unsafe_allow_html=True)
 
 
 def go_to_analyze_with_error(message):
@@ -810,7 +1127,7 @@ if st.session_state.screen == "home":
     with c1:
         st.markdown(
             """
-            <div class="glass">
+            <div class="glass fade-in-up" style="animation-delay:0s;">
                 <div class="feature-title">🎯 Smart Matching</div>
                 <div class="feature-text">
                     Compare your resume with real job requirements
@@ -824,7 +1141,7 @@ if st.session_state.screen == "home":
     with c2:
         st.markdown(
             """
-            <div class="glass">
+            <div class="glass fade-in-up" style="animation-delay:0.12s;">
                 <div class="feature-title">🧠 Skill Intelligence</div>
                 <div class="feature-text">
                     Discover the skills you already have and the
@@ -838,7 +1155,7 @@ if st.session_state.screen == "home":
     with c3:
         st.markdown(
             """
-            <div class="glass">
+            <div class="glass fade-in-up" style="animation-delay:0.24s;">
                 <div class="feature-title">⚖️ Compare Jobs</div>
                 <div class="feature-text">
                     Check your resume against up to 3 job postings
@@ -852,7 +1169,7 @@ if st.session_state.screen == "home":
     with c4:
         st.markdown(
             """
-            <div class="glass">
+            <div class="glass fade-in-up" style="animation-delay:0.36s;">
                 <div class="feature-title">📄 PDF Reports</div>
                 <div class="feature-text">
                     Download a polished report of your match score,
@@ -866,7 +1183,7 @@ if st.session_state.screen == "home":
     st.markdown(
         """
         <div style="text-align:center; margin-top:70px; color:#52525b; font-size:13px;">
-            Analyze • Improve • Get Hired
+            <span class="tagline-type">Analyze • Improve • Get Hired</span>
         </div>
         """,
         unsafe_allow_html=True
@@ -1056,6 +1373,18 @@ elif st.session_state.screen == "processing":
         unsafe_allow_html=True
     )
 
+    st.markdown(
+        """
+        <div style="text-align:center; margin: 10px 0 25px;">
+            <span class="spinner-icon">🧭</span>
+            <div class="loading-dots" style="margin-top:10px;">
+                <span></span><span></span><span></span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
     progress = st.progress(0)
     status = st.empty()
 
@@ -1078,6 +1407,7 @@ elif st.session_state.screen == "processing":
         status.markdown("🧠 **Understanding your skills...**")
         time.sleep(0.4)
         resume_skills = extract_skills(resume_text)
+        st.session_state.resume_skills = resume_skills
 
         progress.progress(30)
 
@@ -1110,6 +1440,7 @@ elif st.session_state.screen == "processing":
         time.sleep(0.4)
 
         tips = generate_combined_tips(resume_text, results_list)
+        company_suggestions = suggest_companies(resume_skills)
 
         progress.progress(100)
         time.sleep(0.3)
@@ -1117,6 +1448,7 @@ elif st.session_state.screen == "processing":
         # Save results
         st.session_state.results_list = results_list
         st.session_state.tips = tips
+        st.session_state.company_suggestions = company_suggestions
         st.session_state.analyzed = True
         st.session_state.screen = "results"
 
@@ -1212,8 +1544,12 @@ elif st.session_state.screen == "results":
                 unsafe_allow_html=True
             )
             if matched:
-                for skill in matched:
-                    st.markdown(f'<span class="skill green">✓ {skill}</span>', unsafe_allow_html=True)
+                for i, skill in enumerate(matched):
+                    delay = min(i * 0.05, 0.6)
+                    st.markdown(
+                        f'<span class="skill green" style="animation-delay:{delay}s;">✓ {skill}</span>',
+                        unsafe_allow_html=True
+                    )
             else:
                 st.info("No matching skills detected.")
 
@@ -1225,8 +1561,12 @@ elif st.session_state.screen == "results":
                 unsafe_allow_html=True
             )
             if missing:
-                for skill in missing:
-                    st.markdown(f'<span class="skill red">✕ {skill}</span>', unsafe_allow_html=True)
+                for i, skill in enumerate(missing):
+                    delay = min(i * 0.05, 0.6)
+                    st.markdown(
+                        f'<span class="skill red" style="animation-delay:{delay}s;">✕ {skill}</span>',
+                        unsafe_allow_html=True
+                    )
             else:
                 st.success("🎉 No major skill gaps detected!")
 
@@ -1259,8 +1599,10 @@ elif st.session_state.screen == "results":
         if missing:
             roadmap_items = missing[:6]
             for number, skill in enumerate(roadmap_items, start=1):
+                delay = (number - 1) * 0.1
                 st.markdown(
-                    f"""<div class="roadmap"><div class="roadmap-number">{number}</div>
+                    f"""<div class="roadmap fade-in-up" style="animation-delay:{delay}s;">
+                    <div class="roadmap-number">{number}</div>
                     <div><strong>Learn {skill}</strong><br>
                     <small style="color:#71717a;">Build a practical project using
                     {skill} and add it to your portfolio.</small></div></div>""",
@@ -1284,7 +1626,7 @@ elif st.session_state.screen == "results":
                 badge = '<span class="best-badge">BEST MATCH</span>' if is_best else ""
                 st.markdown(
                     f"""
-                    <div class="score-card" style="padding:22px;">
+                    <div class="score-card fade-in-up" style="padding:22px; animation-delay:{i * 0.15}s;">
                         <div style="font-size:14px; color:#a1a1aa; margin-bottom:8px;">
                             {res['label']} {badge}
                         </div>
@@ -1327,32 +1669,77 @@ elif st.session_state.screen == "results":
                 with left:
                     st.markdown("**🟢 Strengths**")
                     if res["matched"]:
-                        for skill in res["matched"]:
-                            st.markdown(f'<span class="skill green">✓ {skill}</span>', unsafe_allow_html=True)
+                        for i, skill in enumerate(res["matched"]):
+                            delay = min(i * 0.05, 0.6)
+                            st.markdown(
+                                f'<span class="skill green" style="animation-delay:{delay}s;">✓ {skill}</span>',
+                                unsafe_allow_html=True
+                            )
                     else:
                         st.info("No matching skills detected.")
                 with right:
                     st.markdown("**🔴 Skill Gaps**")
                     if res["missing"]:
-                        for skill in res["missing"]:
-                            st.markdown(f'<span class="skill red">✕ {skill}</span>', unsafe_allow_html=True)
+                        for i, skill in enumerate(res["missing"]):
+                            delay = min(i * 0.05, 0.6)
+                            st.markdown(
+                                f'<span class="skill red" style="animation-delay:{delay}s;">✕ {skill}</span>',
+                                unsafe_allow_html=True
+                            )
                     else:
                         st.success("🎉 No major skill gaps detected!")
 
     # RESUME IMPROVEMENT TIPS (shared across single/compare mode)
     st.write("")
     st.subheader("💡 Resume Improvement Tips")
-    for tip in tips:
+    for i, tip in enumerate(tips):
+        delay = i * 0.1
         st.markdown(
-            f"""<div class="tip-card"><div class="tip-icon">✨</div>
+            f"""<div class="tip-card fade-in-up" style="animation-delay:{delay}s;">
+            <div class="tip-icon">✨</div>
             <div class="tip-text">{tip}</div></div>""",
             unsafe_allow_html=True
+        )
+
+    # COMPANIES THAT MIGHT HIRE YOU
+    company_suggestions = st.session_state.get("company_suggestions", [])
+    st.write("")
+    st.subheader("🏢 Companies That Might Hire You")
+    st.caption(
+        "Based on your detected skills — a general industry guide, not "
+        "live job postings. Check each company's careers page for current openings."
+    )
+
+    if company_suggestions:
+        for idx, sug in enumerate(company_suggestions):
+            card_delay = idx * 0.15
+            skills_str = ", ".join(sug["overlap_skills"][:5])
+            companies_html = "".join(
+                f'<span class="skill" style="animation-delay:{min(j * 0.05, 0.4)}s;">🏢 {c}</span>'
+                for j, c in enumerate(sug["companies"])
+            )
+            st.markdown(
+                f"""
+                <div class="glass fade-in-up" style="margin-bottom:14px; animation-delay:{card_delay}s;">
+                    <div class="feature-title">🎯 {sug['role']}</div>
+                    <div class="feature-text" style="margin-bottom:10px;">
+                        Matched on: {skills_str}
+                    </div>
+                    <div>{companies_html}</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+    else:
+        st.info(
+            "We couldn't confidently match your skills to a known role yet. "
+            "Try adding more specific technical or domain skills to your resume."
         )
 
     # PDF REPORT DOWNLOAD
     st.write("")
     st.subheader("📄 Download Your Report")
-    pdf_bytes = generate_pdf_report(resume_name, results_list, tips)
+    pdf_bytes = generate_pdf_report(resume_name, results_list, tips, company_suggestions)
     st.download_button(
         label="⬇️ DOWNLOAD PDF REPORT",
         data=pdf_bytes,
@@ -1411,13 +1798,14 @@ elif st.session_state.screen == "history":
     if not history:
         st.info("No analyses yet. Run your first job match to see it here.")
     else:
-        for entry in history:
+        for h_idx, entry in enumerate(history):
+            h_delay = min(h_idx * 0.08, 0.6)
             jobs_summary = " · ".join(
                 f"{j['label']}: {j['match_score']:.0f}%" for j in entry["jobs"]
             )
             st.markdown(
                 f"""
-                <div class="history-card">
+                <div class="history-card fade-in-up" style="animation-delay:{h_delay}s;">
                     <div style="font-weight:800; font-size:16px;">
                         {entry['resume_name']}
                         <span class="best-badge">Best: {entry['best_label']}
